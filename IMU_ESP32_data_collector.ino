@@ -6,9 +6,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define LSM6DS_INT_PIN 4 // LSM6DS的中断引脚连接到ESP32的GPIO 33
-#define SD_CS_PIN 5       // SD卡的CS引脚连接到GPIO 5
+#define LSM6DS_INT_PIN 4 // LSM6DS interrupt   
+#define SD_CS_PIN 5       // SD card CS SPI pin
+#define BLUE_LED       2 // LSM6DS interrupt   
 
+#define IMU_SAMPLING_INTERVAL       10 // 10ms =100HZ 
 
 Adafruit_LSM6DSL lsm6ds;
 sensors_event_t accel, gyro, temp;
@@ -39,6 +41,10 @@ int buf_len = 0;
 uint8_t sd_buffer[BUFFER_SIZE*sizeof(DataItem)];
 SemaphoreHandle_t bufMutex;
 
+unsigned long currentTime;
+unsigned long nextSampleTime;
+
+
 void readIMUTask(void *parameter);
 void writeSDTask(void *parameter);
 void onSensorDataReady();
@@ -59,7 +65,7 @@ void setup() {
   Serial.println("SD card initialized.");
 
   for (unsigned int i = 0; i < 10000; i++) {
-    fileName = baseName + padStart(String(i),4, '0') + ".txt";
+    fileName = baseName + padStart(String(i),4, '0') + ".bin";
     if (!SD.exists(fileName.c_str())) {
       // 找到了一个不存在的文件名，现在创建并写入数据
       file = SD.open(fileName.c_str(), FILE_WRITE);
@@ -81,8 +87,8 @@ void setup() {
 
   Serial.println("Initialization done.");
 
-  pinMode(LSM6DS_INT_PIN, INPUT);
-  attachInterrupt(digitalPinToInterrupt(LSM6DS_INT_PIN), onSensorDataReady, RISING); // 设置中断
+  pinMode(BLUE_LED,OUTPUT);
+  
   lsm6ds.getEvent(&accel, &gyro, &temp);
 
   bufMutex = xSemaphoreCreateMutex();
@@ -92,20 +98,21 @@ void setup() {
       Serial.println("Mutex creation failed.");
       while(1);
   }
-
+  nextSampleTime = millis()+IMU_SAMPLING_INTERVAL;
   xTaskCreate(readIMUTask, "Read Task", 2048, NULL, 3, NULL);
   xTaskCreate(writeSDTask, "Write Task", 2048, NULL, 2, NULL);
 }
 
 
 void readIMUTask(void *parameter) {
-  while(true){
-    if(dataReady){
-      dataReady = false;
   
+  while(true){
+    currentTime = millis();
+    if(currentTime>=nextSampleTime){
+      nextSampleTime = currentTime+IMU_SAMPLING_INTERVAL;
       lsm6ds.getEvent(&accel, &gyro, &temp);
 //      if (xSemaphoreTake(bufMutex, portMAX_DELAY) == pdTRUE) {
-        data_list[head_point].timestamp = millis();
+        data_list[head_point].timestamp = currentTime;
         data_list[head_point].acc_x = accel.acceleration.x;
         data_list[head_point].acc_y = accel.acceleration.y;
         data_list[head_point].acc_z = accel.acceleration.z;
@@ -120,7 +127,7 @@ void readIMUTask(void *parameter) {
 //        xSemaphoreGive(bufMutex);
 //      }
       
-      Serial.println(millis());
+      Serial.println(currentTime);
     }else{
       vTaskDelay(1 / portTICK_PERIOD_MS);
     }
@@ -129,7 +136,8 @@ void readIMUTask(void *parameter) {
 }
 
 void writeSDTask(void *parameter){
-  int copy_counter;
+  size_t copy_counter;
+  size_t written;
   int item_size = sizeof(DataItem);
   while(true){
 //    if (xSemaphoreTake(bufMutex, portMAX_DELAY) == pdTRUE) {
@@ -148,8 +156,15 @@ void writeSDTask(void *parameter){
             tail_point =0;
           }
         }
-        file.write(sd_buffer, copy_counter);
-        file.flush();
+        written = file.write(sd_buffer, copy_counter);
+        if(written ==copy_counter){
+          file.flush();
+        }else{
+          Serial.println("SD card write failed!");
+          while (1) { delay(10); }
+        }
+        
+        digitalWrite(BLUE_LED, !digitalRead(BLUE_LED));
         Serial.print("write ");Serial.println(millis());
         
       }
@@ -161,9 +176,7 @@ void writeSDTask(void *parameter){
   }
 }
 
-void onSensorDataReady() {
-  dataReady = true;
-}
+
 
 String padStart(String str, unsigned int targetLength, char padChar) {
   while (str.length() < targetLength) {
