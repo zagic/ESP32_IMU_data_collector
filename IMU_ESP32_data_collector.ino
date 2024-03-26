@@ -1,14 +1,15 @@
 #include <Wire.h>
 #include <SPI.h>
-#include <SD.h>
+//#include <SD.h>
 #include <FS.h>
+#include "SD_MMC.h"
 #include <Adafruit_LSM6DSL.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define LSM6DS_INT_PIN 4 // LSM6DS interrupt   
-#define SD_CS_PIN 5       // SD card CS SPI pin
-#define BLUE_LED       2 // LSM6DS interrupt   
+
+
+#define BLUE_LED       5 // LSM6DS interrupt   
 
 #define IMU_SAMPLING_INTERVAL       10 // 10ms =100HZ 
 
@@ -58,18 +59,31 @@ void setup() {
   }
   Serial.println("LSM6DSL found!");
 
-  Serial.println("Initializing SD card...");
-  if (!SD.begin()) {
-    Serial.println("Initialization failed!");
-    while (1) { delay(10); }
+//  Serial.println("Initializing SD card...");
+//  if (!SD.begin()) {
+//    Serial.println("Initialization failed!");
+//    while (1) { delay(10); }
+//  }
+//  Serial.println("SD card initialized.");
+
+  if(!SD_MMC.begin()){
+    Serial.println("Card Mount Failed");
+    return;
   }
-  Serial.println("SD card initialized.");
+  uint8_t cardType = SD_MMC.cardType();
+
+  if(cardType == CARD_NONE){
+    Serial.println("No SD card attached");
+    return;
+  }
+
+  Serial.println("Initializing SD card...");
 
   for (unsigned int i = 0; i < 10000; i++) {
     fileName = baseName + padStart(String(i),4, '0') + ".bin";
-    if (!SD.exists(fileName.c_str())) {
+    if (!SD_MMC.exists(fileName.c_str())) {
       // 找到了一个不存在的文件名，现在创建并写入数据
-      file = SD.open(fileName.c_str(), FILE_WRITE);
+      file = SD_MMC.open(fileName.c_str(), FILE_WRITE);
       if (file) {
         Serial.println("Data written to " + fileName);
       } else {
@@ -120,9 +134,9 @@ void readIMUTask(void *parameter) {
         data_list[head_point].gyro_x = gyro.gyro.x;
         data_list[head_point].gyro_y = gyro.gyro.y;
         data_list[head_point].gyro_z = gyro.gyro.z;
-//        if(data_list[head_point].acc_x>15 || data_list[head_point].acc_y>15 || data_list[head_point].acc_z>15){
-//          Serial.println("aa");
-//        }
+        if(data_list[head_point].acc_x>15 || data_list[head_point].acc_y>15 || data_list[head_point].acc_z>15){
+          Serial.println("aa");
+        }
         head_point++;
         if(head_point== BUFFER_SIZE ){
           head_point =0;
