@@ -33,12 +33,13 @@ struct DataItem {
  *we assume the buffer never full, so buffer remain space is never checked
  */
 volatile bool dataReady = false;
-#define BUFFER_SIZE           100
+#define BUFFER_SIZE               100
+#define BULK_WRITE_SIZE           20
 DataItem data_list[BUFFER_SIZE];
 volatile int head_point = 0;
 volatile int tail_point = 0;  
 int buf_len = 0;  
-uint8_t sd_buffer[BUFFER_SIZE*sizeof(DataItem)];
+uint8_t sd_buffer[BULK_WRITE_SIZE*sizeof(DataItem)+50];
 SemaphoreHandle_t bufMutex;
 
 unsigned long currentTime;
@@ -109,9 +110,9 @@ void readIMUTask(void *parameter) {
   while(true){
     currentTime = millis();
     if(currentTime>=nextSampleTime){
-      nextSampleTime = currentTime+IMU_SAMPLING_INTERVAL;
+      nextSampleTime = nextSampleTime+IMU_SAMPLING_INTERVAL;
       lsm6ds.getEvent(&accel, &gyro, &temp);
-//      if (xSemaphoreTake(bufMutex, portMAX_DELAY) == pdTRUE) {
+      if (xSemaphoreTake(bufMutex, portMAX_DELAY) == pdTRUE) {
         data_list[head_point].timestamp = currentTime;
         data_list[head_point].acc_x = accel.acceleration.x;
         data_list[head_point].acc_y = accel.acceleration.y;
@@ -119,15 +120,18 @@ void readIMUTask(void *parameter) {
         data_list[head_point].gyro_x = gyro.gyro.x;
         data_list[head_point].gyro_y = gyro.gyro.y;
         data_list[head_point].gyro_z = gyro.gyro.z;
-      
+//        if(data_list[head_point].acc_x>15 || data_list[head_point].acc_y>15 || data_list[head_point].acc_z>15){
+//          Serial.println("aa");
+//        }
         head_point++;
         if(head_point== BUFFER_SIZE ){
           head_point =0;
         }
-//        xSemaphoreGive(bufMutex);
-//      }
+        
+        xSemaphoreGive(bufMutex);
+      }
       
-      Serial.println(currentTime);
+//      Serial.println(currentTime);
     }else{
       vTaskDelay(1 / portTICK_PERIOD_MS);
     }
@@ -140,15 +144,15 @@ void writeSDTask(void *parameter){
   size_t written;
   int item_size = sizeof(DataItem);
   while(true){
-//    if (xSemaphoreTake(bufMutex, portMAX_DELAY) == pdTRUE) {
+    if (xSemaphoreTake(bufMutex, portMAX_DELAY) == pdTRUE) {
       buf_len = head_point - tail_point;
      
       if(buf_len<0){
         buf_len += BUFFER_SIZE;
       }
-      if(buf_len >=(BUFFER_SIZE/2+1)){
+      if(buf_len >=(BULK_WRITE_SIZE+1)){
         copy_counter = 0;
-        for(int i=0;i<BUFFER_SIZE/2;i++){
+        for(int i=0;i<BULK_WRITE_SIZE;i++){
           memcpy(sd_buffer+copy_counter, (uint8_t *)(data_list+tail_point),item_size);
           copy_counter+=item_size;
           tail_point++;
@@ -156,6 +160,7 @@ void writeSDTask(void *parameter){
             tail_point =0;
           }
         }
+        xSemaphoreGive(bufMutex); 
         written = file.write(sd_buffer, copy_counter);
         if(written ==copy_counter){
           file.flush();
@@ -167,9 +172,11 @@ void writeSDTask(void *parameter){
         digitalWrite(BLUE_LED, !digitalRead(BLUE_LED));
         Serial.print("write ");Serial.println(millis());
         
+      }else{
+        xSemaphoreGive(bufMutex); 
       }
-//      xSemaphoreGive(bufMutex); 
-//    }
+      
+    }
     vTaskDelay(1 / portTICK_PERIOD_MS); /*MUST give other thread some time*/ 
     
     
