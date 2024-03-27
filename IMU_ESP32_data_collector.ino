@@ -35,7 +35,7 @@ struct DataItem {
  */
 volatile bool dataReady = false;
 #define BUFFER_SIZE               100
-#define BULK_WRITE_SIZE           20
+#define BULK_WRITE_SIZE           50
 DataItem data_list[BUFFER_SIZE];
 volatile int head_point = 0;
 volatile int tail_point = 0;  
@@ -54,6 +54,7 @@ String padStart(String str, unsigned int targetLength, char padChar);
 void setup() {
   Serial.begin(115200);
   Wire.begin(16,17);
+  Wire.setClock(100000); 
   if (!lsm6ds.begin_I2C(0x6B)) {
     Serial.println("Failed to find LSM6DSL chip");
     while (1) { delay(10); }
@@ -115,8 +116,8 @@ void setup() {
       while(1);
   }
   nextSampleTime = millis()+IMU_SAMPLING_INTERVAL;
-  xTaskCreate(readIMUTask, "Read Task", 2048, NULL, 3, NULL);
-  xTaskCreate(writeSDTask, "Write Task", 2048, NULL, 2, NULL);
+  xTaskCreatePinnedToCore(readIMUTask, "Read Task", 2048, NULL, 3, NULL,0);
+  xTaskCreatePinnedToCore(writeSDTask, "Write Task", 2048, NULL, 2, NULL,1);
 }
 
 
@@ -135,9 +136,19 @@ void readIMUTask(void *parameter) {
         data_list[head_point].gyro_x = gyro.gyro.x;
         data_list[head_point].gyro_y = gyro.gyro.y;
         data_list[head_point].gyro_z = gyro.gyro.z;
-//        if(accel.acceleration.x>15 || accel.acceleration.y>15 || accel.acceleration.z>15){
-//          Serial.println("aa");
-//        }
+        if(accel.acceleration.x>15 || accel.acceleration.y>15 || accel.acceleration.z>15){
+          Serial.print(accel.acceleration.x);
+          Serial.print(" ");
+          Serial.print(accel.acceleration.y);
+          Serial.print(" ");
+          Serial.print(accel.acceleration.z);
+          Serial.print(" ");
+          Serial.print(gyro.gyro.x);
+          Serial.print(" ");
+          Serial.print(gyro.gyro.y);
+          Serial.print(" ");
+          Serial.println(gyro.gyro.z);
+        }
         head_point++;
         if(head_point== BUFFER_SIZE ){
           head_point =0;
@@ -175,7 +186,7 @@ void writeSDTask(void *parameter){
             tail_point =0;
           }
         }
-        
+        xSemaphoreGive(bufMutex); 
         written = file.write(sd_buffer, copy_counter);
         if(written ==copy_counter){
           file.flush();
@@ -183,7 +194,7 @@ void writeSDTask(void *parameter){
           Serial.println("SD card write failed!");
           while (1) { delay(10); }
         }
-        xSemaphoreGive(bufMutex); 
+        
         digitalWrite(BLUE_LED, !digitalRead(BLUE_LED));
         Serial.print("write ");Serial.println(millis());
         
