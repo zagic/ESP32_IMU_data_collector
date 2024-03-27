@@ -9,7 +9,7 @@
 
 
 
-#define BLUE_LED       5 // LSM6DS interrupt   
+#define BLUE_LED       27 //   
 
 #define IMU_SAMPLING_INTERVAL       10 // 10ms =100HZ 
 
@@ -53,6 +53,7 @@ void onSensorDataReady();
 String padStart(String str, unsigned int targetLength, char padChar);
 void setup() {
   Serial.begin(115200);
+  Wire.begin(16,17);
   if (!lsm6ds.begin_I2C(0x6B)) {
     Serial.println("Failed to find LSM6DSL chip");
     while (1) { delay(10); }
@@ -125,8 +126,8 @@ void readIMUTask(void *parameter) {
     currentTime = millis();
     if(currentTime>=nextSampleTime){
       nextSampleTime = nextSampleTime+IMU_SAMPLING_INTERVAL;
-      lsm6ds.getEvent(&accel, &gyro, &temp);
       if (xSemaphoreTake(bufMutex, portMAX_DELAY) == pdTRUE) {
+        lsm6ds.getEvent(&accel, &gyro, &temp);
         data_list[head_point].timestamp = currentTime;
         data_list[head_point].acc_x = accel.acceleration.x;
         data_list[head_point].acc_y = accel.acceleration.y;
@@ -134,9 +135,9 @@ void readIMUTask(void *parameter) {
         data_list[head_point].gyro_x = gyro.gyro.x;
         data_list[head_point].gyro_y = gyro.gyro.y;
         data_list[head_point].gyro_z = gyro.gyro.z;
-        if(data_list[head_point].acc_x>15 || data_list[head_point].acc_y>15 || data_list[head_point].acc_z>15){
-          Serial.println("aa");
-        }
+//        if(accel.acceleration.x>15 || accel.acceleration.y>15 || accel.acceleration.z>15){
+//          Serial.println("aa");
+//        }
         head_point++;
         if(head_point== BUFFER_SIZE ){
           head_point =0;
@@ -174,7 +175,7 @@ void writeSDTask(void *parameter){
             tail_point =0;
           }
         }
-        xSemaphoreGive(bufMutex); 
+        
         written = file.write(sd_buffer, copy_counter);
         if(written ==copy_counter){
           file.flush();
@@ -182,7 +183,7 @@ void writeSDTask(void *parameter){
           Serial.println("SD card write failed!");
           while (1) { delay(10); }
         }
-        
+        xSemaphoreGive(bufMutex); 
         digitalWrite(BLUE_LED, !digitalRead(BLUE_LED));
         Serial.print("write ");Serial.println(millis());
         
