@@ -12,7 +12,7 @@ import numpy as np
 
 
 
-file_name = "ESP32_ISM6DSL/DATA0000.bin"
+file_name = "ESP32_ISM6DSL/DATA0001.bin"
 
 ideal_sampling_rate =100  # HZ
 

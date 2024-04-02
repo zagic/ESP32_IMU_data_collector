@@ -3,13 +3,13 @@
 //#include <SD.h>
 #include <FS.h>
 #include "SD_MMC.h"
-#include <Adafruit_LSM6DSL.h>
+#include "Adafruit_LSM6DSL.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 
 
-#define BLUE_LED       27 //   
+#define BLUE_LED       5 //   
 
 #define IMU_SAMPLING_INTERVAL       10 // 10ms =100HZ 
 
@@ -53,8 +53,8 @@ void onSensorDataReady();
 String padStart(String str, unsigned int targetLength, char padChar);
 void setup() {
   Serial.begin(115200);
-  Wire.begin(16,17);
-  Wire.setClock(100000); 
+  Wire.begin();
+  //Wire.setClock(100000); 
   if (!lsm6ds.begin_I2C(0x6B)) {
     Serial.println("Failed to find LSM6DSL chip");
     while (1) { delay(10); }
@@ -128,27 +128,17 @@ void readIMUTask(void *parameter) {
     if(currentTime>=nextSampleTime){
       nextSampleTime = nextSampleTime+IMU_SAMPLING_INTERVAL;
       if (xSemaphoreTake(bufMutex, portMAX_DELAY) == pdTRUE) {
-        lsm6ds.getEvent(&accel, &gyro, &temp);
-        data_list[head_point].timestamp = currentTime;
+        while(!lsm6ds.getEvent(&accel, &gyro, &temp)){
+          Serial.println("Retry I2C reading");
+        }
+        data_list[head_point].timestamp = accel.timestamp;
         data_list[head_point].acc_x = accel.acceleration.x;
         data_list[head_point].acc_y = accel.acceleration.y;
         data_list[head_point].acc_z = accel.acceleration.z;
         data_list[head_point].gyro_x = gyro.gyro.x;
         data_list[head_point].gyro_y = gyro.gyro.y;
         data_list[head_point].gyro_z = gyro.gyro.z;
-        if(accel.acceleration.x>15 || accel.acceleration.y>15 || accel.acceleration.z>15){
-          Serial.print(accel.acceleration.x);
-          Serial.print(" ");
-          Serial.print(accel.acceleration.y);
-          Serial.print(" ");
-          Serial.print(accel.acceleration.z);
-          Serial.print(" ");
-          Serial.print(gyro.gyro.x);
-          Serial.print(" ");
-          Serial.print(gyro.gyro.y);
-          Serial.print(" ");
-          Serial.println(gyro.gyro.z);
-        }
+
         head_point++;
         if(head_point== BUFFER_SIZE ){
           head_point =0;
